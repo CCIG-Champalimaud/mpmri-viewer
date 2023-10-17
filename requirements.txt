@@ -1,0 +1,6 @@
+numpy==1.23.5
+opencv_python==4.8.1.78
+panel==1.2.3
+Pillow==10.1.0
+scikit_image==0.19.2
+SimpleITK==2.3.0
