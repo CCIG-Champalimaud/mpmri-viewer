@@ -126,6 +126,7 @@ def init_app(dataset_path: str,
             image_loader.image_idxs = []
             image_loader.curr_study_uids = {}
             page.end = len(image_loader.dataset) - sqrt_n_images.value**2
+            page.value = previous_page_value + 1
             page.value = 0
             template.notifications.success(
                 f'Found {len(image_loader.dataset)} studies',
