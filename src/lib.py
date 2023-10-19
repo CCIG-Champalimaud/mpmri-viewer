@@ -2,6 +2,7 @@ import re
 import numpy as np
 import SimpleITK as sitk
 import cv2
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from PIL import Image
@@ -9,7 +10,7 @@ from skimage.transform import resize
 from skimage.feature import canny
 from skimage.morphology import binary_dilation
 
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 
 def normalize(image: np.ndarray):
     minimum = image.min()
@@ -18,6 +19,39 @@ def normalize(image: np.ndarray):
 
 def read_sitk_array(path: str):
     return sitk.GetArrayFromImage(sitk.ReadImage(path))
+
+def get_filter_from_str(filter_str: str):
+    if "===" in filter_str:
+        key, value = filter_str.split("===")
+        print(key, value)
+        return lambda x: str(x[key]) == str(value) if key in x else False
+    elif "!==" in filter_str:
+        key, value = filter_str.split("!==")
+        return lambda x: str(x[key]) != str(value) if key in x else True
+    if "==" in filter_str:
+        key, value = filter_str.split("==")
+        return lambda x: x[key] == float(value) if key in x else False
+    elif "!=" in filter_str:
+        key, value = filter_str.split("!=")
+        return lambda x: x[key] != float(value) if key in x else True
+    elif ">" in filter_str:
+        key, value = filter_str.split(">")
+        return lambda x: x[key] > float(value) if key in x else False
+    elif ">=" in filter_str:
+        key, value = filter_str.split(">=")
+        return lambda x: x[key] >= float(value) if key in x else False
+    elif "<" in filter_str:
+        key, value = filter_str.split("<")
+        return lambda x: x[key] < float(value) if key in x else False
+    elif "<=" in filter_str:
+        key, value = filter_str.split("<=")
+        return lambda x: x[key] <= float(value) if key in x else False
+
+def get_filter_functions(filter_list_str: str):
+    filters = filter_list_str.split()
+    filters = [get_filter_from_str(s) for s in filters]
+    return [f for f in filters
+            if f is not None]
 
 @dataclass
 class VolumeDataset:
@@ -31,6 +65,10 @@ class VolumeDataset:
         self.collect_all_files()
         self.organize_files()
 
+        self.all_study_uids = self.all_study_uids_full
+        self.retro_conversion = self.retro_conversion_full
+        self.volume_dictionary = self.volume_dictionary_full
+
     def path_glob(self, path: str, pattern: str)->List[str]:
         if self.recursive is True:
             out = Path(path).rglob(pattern)
@@ -43,9 +81,9 @@ class VolumeDataset:
         for pattern in self.patterns:
             self.all_files.extend(
                 self.path_glob(self.path,pattern))
-            
+
     def organize_files(self):
-        self.volume_dictionary = {}
+        self.volume_dictionary_full = {}
         self.image_types = []
         for file in self.all_files:
             study_uid = re.search(self.study_uid_pattern, file)
@@ -54,15 +92,50 @@ class VolumeDataset:
                 continue
             study_uid = study_uid.group()
             image_type = image_type.group()
-            if study_uid not in self.volume_dictionary:
-                self.volume_dictionary[study_uid] = {}
+            if study_uid not in self.volume_dictionary_full:
+                self.volume_dictionary_full[study_uid] = {}
             if image_type not in self.image_types:
                 self.image_types.append(image_type)
-            self.volume_dictionary[study_uid][image_type] = file
-        self.all_study_uids = list(self.volume_dictionary.keys())
-        self.retro_conversion = {
-            key: idx for idx, key in enumerate(self.all_study_uids)
+            self.volume_dictionary_full[study_uid][image_type] = file
+        self.all_study_uids_full = list(self.volume_dictionary_full.keys())
+        self.retro_conversion_full = {
+            key: idx for idx, key in enumerate(self.all_study_uids_full)
         }
+    
+    def filter_volume_dataset(self, 
+                              filter_str_list: str,
+                              metadata: Dict[str,Any]):
+        all_study_uids = deepcopy(self.all_study_uids_full)
+        retro_conversion = deepcopy(self.retro_conversion_full)
+        volume_dictionary = deepcopy(self.volume_dictionary_full)
+        if (filter_str_list is not None) and (filter_str_list != ""):
+            if len(metadata) > 0:
+                filter_fns = get_filter_functions(filter_str_list)
+                keys_to_remove = []
+                for key in all_study_uids:
+                    if key in metadata:
+                        keep = all([fn(metadata[key]) 
+                                    for fn in filter_fns])
+                        if keep == False:
+                            keys_to_remove.append(key)
+                    else:
+                        keys_to_remove.append(key)
+            all_study_uids = [
+                study_uid 
+                for study_uid in all_study_uids
+                if study_uid not in keys_to_remove]
+            retro_conversion = {
+                study_uid: idx
+                for idx, study_uid in enumerate(retro_conversion)
+                if study_uid not in keys_to_remove}
+            volume_dictionary = {
+                study_uid: volume_dictionary[study_uid] 
+                for study_uid in volume_dictionary
+                if study_uid not in keys_to_remove}
+        
+        self.all_study_uids = all_study_uids
+        self.retro_conversion = retro_conversion
+        self.volume_dictionary = volume_dictionary
     
     def __getitem__(self, key_or_idx: str | List[str|int] | int):
         if isinstance(key_or_idx,int):
@@ -112,8 +185,10 @@ class ImageLoader:
                                  n_images,
                                  image_key):
         self.image_idxs = [idx for idx in range(start_idx,start_idx + n_images)]
-        self.curr_study_uids = [self.dataset.all_study_uids[idx]
-                                for idx in self.image_idxs]
+        self.curr_study_uids = [
+            self.dataset.all_study_uids[idx] 
+            if idx < len(self.dataset) else None
+            for idx in self.image_idxs]
         # always load if image_key is different
         if image_key != self.image_key:
             self.all_images = {
@@ -136,14 +211,17 @@ class ImageLoader:
 
     def load_masks_if_necessary(self,mask_key):
         if mask_key != self.image_key:
-            self.all_masks = {
-                idx: read_sitk_array(
-                    self.mask_dataset[
-                        self.dataset.all_study_uids[idx]][mask_key])
-                    if mask_key in self.mask_dataset[
+            self.all_masks = {}
+            for idx in self.image_idxs:
+                self.all_masks[idx] = None
+                if idx < len(self.dataset):
+                    curr_masks = self.mask_dataset[
                         self.dataset.all_study_uids[idx]]
-                    else None
-                for idx in self.image_idxs}
+                    if mask_key in curr_masks:
+                        self.all_masks[idx] = read_sitk_array(
+                            self.mask_dataset[
+                                self.dataset.all_study_uids[idx]][mask_key])
+                    
         else:
             idxs_to_delete = [idx for idx in self.all_masks
                               if idx not in self.image_idxs]
@@ -202,13 +280,13 @@ class ImageLoader:
                     cv2.putText(
                         self.array_tiles,str(i*sqrt_n_images + j + 1),
                         [y1 + self.text_coords[0],x1 + self.text_coords[1]],
-                        cv2.FONT_ITALIC,1,thickness=2,
+                        cv2.FONT_ITALIC,0.8,thickness=2,
                         color=255,lineType=cv2.LINE_AA)
                 else:
                     cv2.putText(
                         self.array_tiles,"none",
                         [y1 + self.text_coords[0],x1 + self.text_coords[1]],
-                        cv2.FONT_ITALIC,1,thickness=2,
+                        cv2.FONT_ITALIC,0.8,thickness=2,
                         color=128,lineType=cv2.LINE_AA)
 
     def update_array_masks(self,

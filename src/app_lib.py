@@ -2,26 +2,22 @@ import json
 import panel as pn
 from .lib import VolumeDataset, ImageLoader
 
-from typing import List
-
-def format_metadata(title: str, metadata_str: str):
-    style = "word-wrap: break-word; width: 90%;"
-    return f"<div style='{style}'><b>{title}</b>: {metadata_str}</div>"
+from typing import List, Dict, Any
 
 class AccordionReactive(pn.Accordion):
     def __init__(self, 
-                 image_loader,
-                 metadata_path: str=None, 
+                 image_loader: VolumeDataset,
+                 metadata: Dict[str,Any]=None, 
                  metadata_keys: List[str]=[],
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.image_loader = image_loader
-        self.metadata_path = metadata_path
+        self.metadata = metadata
         self.metadata_keys = metadata_keys
 
-        if metadata_path is not None:
-            with open(self.metadata_path) as o:
-                self.metadata = json.load(o)
+    def format_metadata(self, title: str, metadata_str: str):
+        style = "word-wrap: break-word; width: 90%;"
+        return f"<div style='{style}'><b>{title}</b>: {metadata_str}</div>"
 
     def add_text(self, *args, **kwargs):
         study_uids = self.image_loader.retrieve_curr_study_uids()
@@ -29,14 +25,15 @@ class AccordionReactive(pn.Accordion):
         to_add = []
         for i,study_uid in enumerate(study_uids):
             curr_metadata = [
-                format_metadata("Study UID",study_uid)
+                self.format_metadata("Study UID",study_uid)
             ]
             if hasattr(self,"metadata"):
                 if study_uid in self.metadata:
                     for key in self.metadata_keys:
                         if key in self.metadata[study_uid]:
                             curr_metadata.append(
-                                format_metadata(key,self.metadata[study_uid][key]))
+                                self.format_metadata(
+                                    key,self.metadata[study_uid][key]))
             element = (str(i + 1),pn.pane.HTML("\n".join(curr_metadata)))
             to_add.append(element)
         self.extend(to_add)
@@ -70,6 +67,10 @@ def init_app(dataset_path: str,
                                volume_dataset,
                                mask_dataset,
                                "resize")
+    
+    if metadata_path is not None:
+        with open(metadata_path) as o:
+            metadata = json.load(o)
 
     template = pn.template.MaterialTemplate()
     image_type = pn.Column(
@@ -85,28 +86,63 @@ def init_app(dataset_path: str,
     sqrt_n_images = pn.widgets.IntSlider(name="Number of images",start=1,
                                          end=max_number_of_images)
     mode = pn.widgets.Select(name="Display mode",options=["resize","crop"])
-    page = pn.widgets.IntSlider(name="Volumes",start=0,end=len(volume_dataset),
-                                step=pn.bind(lambda x: x**2,sqrt_n_images))
+    page = pn.widgets.IntSlider(
+        name="Volumes",start=0,end=len(volume_dataset) - sqrt_n_images.value**2,
+        step=pn.bind(lambda x: x**2,sqrt_n_images))
     autocomplete = pn.widgets.AutocompleteInput(
         name='Study UID', options=volume_dataset.all_study_uids,
-        placeholder='Skips to this study UID')
+        placeholder='Skips to this study UID',width=250)
     search_button = pn.widgets.Button(name="Search")
+
+    filter_instructions = pn.widgets.TextInput(
+        name='Filter by metadata key', options=metadata_keys,
+        placeholder='key==value or key!=value',width=250)
+    filter_button = pn.widgets.Button(name="Filter")
 
     def update_image_from_search(event):
         study_uid = autocomplete.value
-        if study_uid in volume_dataset.retro_conversion:
-            idx = volume_dataset.retro_conversion[study_uid]
+        if study_uid in image_loader.dataset.retro_conversion:
+            idx = image_loader.dataset.retro_conversion[study_uid]
             page.value = idx
             sqrt_n_images.value = 1
             template.notifications.success(
                 f'Found study UID {study_uid}',
-                duration=1000)
+                duration=2000)
         else:
             template.notifications.error(
                 f'Study UID {study_uid} not in dataset',
-                duration=1000)
+                duration=2000)
+            
+    def update_from_filter(event):
+        filters = filter_instructions.value
+        previous_autocomplete_options = autocomplete.options
+        previous_image_loader_idxs = image_loader.image_idxs
+        previous_image_curr_study_uids = image_loader.curr_study_uids
+        previous_page_end = page.end
+        previous_page_value = page.value
+        try:
+            image_loader.dataset.filter_volume_dataset(filters, metadata)
+            autocomplete.options = image_loader.dataset.all_study_uids
+            image_loader.image_idxs = []
+            image_loader.curr_study_uids = {}
+            page.end = len(image_loader.dataset) - sqrt_n_images.value**2
+            page.value = 0
+            template.notifications.success(
+                f'Found {len(image_loader.dataset)} studies',
+                duration=2000)
+        except:
+            # reset status, raise error
+            autocomplete.options = previous_autocomplete_options
+            image_loader.image_idxs = previous_image_loader_idxs
+            image_loader.curr_study_uids = previous_image_curr_study_uids
+            page.end = previous_page_end
+            page.value = previous_page_value
+            template.notifications.error(
+                f'Filtering failed, please check filters are correct',
+                duration=2000)
 
     search_button.on_click(update_image_from_search)
+    filter_button.on_click(update_from_filter)
 
     image = pn.pane.Image(pn.bind(image_loader.retrieve_pil_image,
                                   sqrt_n_images,
@@ -117,7 +153,7 @@ def init_app(dataset_path: str,
                                   mode=mode),
                           width=640)
     reactive_col = AccordionReactive(image_loader=image_loader,
-                                     metadata_path=metadata_path,
+                                     metadata=metadata,
                                      metadata_keys=metadata_keys,
                                      width_policy="fixed",
                                      width=300)
@@ -126,12 +162,15 @@ def init_app(dataset_path: str,
     template.sidebar.append(
         pn.Column(image_type,
                   slice_idx,
-                  sqrt_n_images, 
+                  sqrt_n_images,
                   mode,
-                  "<br>",
-                  autocomplete,
-                  search_button,
-                  "<br>",
+                  pn.Accordion(
+                      ("Filter",
+                       pn.Column(filter_instructions, filter_button)),
+                      ("Search",
+                       pn.Column(autocomplete, search_button)),
+                      width=300,
+                      width_policy="fixed"),
                   pn.Column(
                       pn.bind(reactive_col.add_text, sqrt_n_images, page),
                       height=200
