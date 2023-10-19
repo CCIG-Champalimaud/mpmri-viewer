@@ -23,7 +23,6 @@ def read_sitk_array(path: str):
 def get_filter_from_str(filter_str: str):
     if "===" in filter_str:
         key, value = filter_str.split("===")
-        print(key, value)
         return lambda x: str(x[key]) == str(value) if key in x else False
     elif "!==" in filter_str:
         key, value = filter_str.split("!==")
