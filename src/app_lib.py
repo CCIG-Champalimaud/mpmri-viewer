@@ -55,22 +55,31 @@ def init_app(dataset_path: str,
         patterns=patterns,
         image_pattern=image_type_pattern,
         study_uid_pattern=study_uid_pattern)
+    
+    if metadata_path is not None:
+        with open(metadata_path) as o:
+            metadata = json.load(o)
+    else:
+        metadata = {}
+    
     if mask_path is not None:
         mask_dataset = VolumeDataset(
             mask_path, 
             patterns=mask_patterns,
             image_pattern=mask_type_pattern,
             study_uid_pattern=study_uid_pattern)
+        for key in mask_dataset.volume_dictionary_full:
+            if key not in metadata:
+                metadata[key] = {}
+            for mask_key in mask_dataset.volume_dictionary_full[key]:
+                metadata[key][mask_key] = True
+        metadata_keys.extend(mask_dataset.image_types)
     else:
         mask_dataset = None
     image_loader = ImageLoader([128,128],
                                volume_dataset,
                                mask_dataset,
                                "resize")
-    
-    if metadata_path is not None:
-        with open(metadata_path) as o:
-            metadata = json.load(o)
 
     template = pn.template.MaterialTemplate()
     image_type = pn.Column(
@@ -79,13 +88,14 @@ def init_app(dataset_path: str,
         pn.widgets.Select(name="Mask type", 
                           options=[]))
     if mask_dataset is None:
-        image_type[1].options = []
+        image_type[1].options = [None]
     else:
-        image_type[1].options = mask_dataset.image_types
+        image_type[1].options = [None] + mask_dataset.image_types
     slice_idx = pn.widgets.IntSlider(name="Slice index",start=0, end=max_slices)
     sqrt_n_images = pn.widgets.IntSlider(name="Number of images",start=1,
                                          end=max_number_of_images)
     mode = pn.widgets.Select(name="Display mode",options=["resize","crop"])
+    numbers = pn.widgets.Checkbox(name="Numbers",value=True)
     page = pn.widgets.IntSlider(
         name="Volumes",start=0,end=len(volume_dataset) - sqrt_n_images.value**2,
         step=pn.bind(lambda x: x**2,sqrt_n_images))
@@ -97,6 +107,19 @@ def init_app(dataset_path: str,
     filter_instructions = pn.widgets.TextInput(
         name='Filter by metadata key', options=metadata_keys,
         placeholder='key==value or key!=value',width=250)
+    filter_helper_text = pn.pane.Markdown("""
+    ### Instructions
+
+    Base format: key\<symbol\>value (no spaces between either)
+
+    * For exact string equivalences:
+        * Use === for exact string equivalences
+        * Use !== for exact string differences
+    * For float equivalences:
+        * Use == for float equivalences
+        * Use != for float differences
+        * Use >, <, >=, <= for general float inequalities
+    """)
     filter_button = pn.widgets.Button(name="Filter")
 
     def update_image_from_search(event):
@@ -146,12 +169,13 @@ def init_app(dataset_path: str,
     filter_button.on_click(update_from_filter)
 
     image = pn.pane.Image(pn.bind(image_loader.retrieve_pil_image,
-                                  sqrt_n_images,
-                                  slice_idx=slice_idx,
-                                  start_idx=page,
+                                  sqrt_n_images.param.value_throttled,
+                                  slice_idx=slice_idx.param.value_throttled,
+                                  start_idx=page.param.value_throttled,
                                   image_key=image_type[0],
                                   mask_key=image_type[1],
-                                  mode=mode),
+                                  mode=mode,
+                                  numbers=numbers),
                           width=640)
     reactive_col = AccordionReactive(image_loader=image_loader,
                                      metadata=metadata,
@@ -165,19 +189,23 @@ def init_app(dataset_path: str,
                   slice_idx,
                   sqrt_n_images,
                   mode,
+                  numbers,
                   pn.Accordion(
                       ("Filter",
-                       pn.Column(filter_instructions, filter_button)),
+                       pn.Column(filter_instructions, filter_button, 
+                                 filter_helper_text)),
                       ("Search",
                        pn.Column(autocomplete, search_button)),
                       width=300,
                       width_policy="fixed"),
                   pn.Column(
-                      pn.bind(reactive_col.add_text, sqrt_n_images, page),
+                      pn.bind(reactive_col.add_text, 
+                              sqrt_n_images.param.value_throttled, 
+                              page.param.value_throttled),
                       height=200
                   )).servable(area="sidebar")
     )
 
-    template.main.append(
+    return template.main.append(
         pn.Column(image, page).servable()
         )

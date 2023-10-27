@@ -250,7 +250,8 @@ class ImageLoader:
                      slice_idx: int,
                      start_idx: int,
                      image_key: str,
-                     mode: str=None):
+                     mode: str=None,
+                     numbers: bool=True):
         if mode is None:
             mode = self.display_mode
         n_images = sqrt_n_images ** 2
@@ -275,18 +276,21 @@ class ImageLoader:
                 x1,x2 = i * self.size[0],i * self.size[0] + self.size[0]
                 y1,y2 = j * self.size[1],j * self.size[1] + self.size[1]
                 self.array_tiles[x1:x2,y1:y2] = image
-                if is_missing is False:
-                    cv2.putText(
-                        self.array_tiles,str(i*sqrt_n_images + j + 1),
-                        [y1 + self.text_coords[0],x1 + self.text_coords[1]],
-                        cv2.FONT_ITALIC,0.8,thickness=2,
-                        color=255,lineType=cv2.LINE_AA)
-                else:
-                    cv2.putText(
-                        self.array_tiles,"none",
-                        [y1 + self.text_coords[0],x1 + self.text_coords[1]],
-                        cv2.FONT_ITALIC,0.8,thickness=2,
-                        color=128,lineType=cv2.LINE_AA)
+                if numbers is True:
+                    if is_missing is False:
+                        cv2.putText(
+                            self.array_tiles,str(i*sqrt_n_images + j + 1),
+                            [y1 + self.text_coords[0],
+                             x1 + self.text_coords[1]],
+                            cv2.FONT_ITALIC,0.8,thickness=2,
+                            color=255,lineType=cv2.LINE_AA)
+                    else:
+                        cv2.putText(
+                            self.array_tiles,"none",
+                            [y1 + self.text_coords[0],
+                             x1 + self.text_coords[1]],
+                            cv2.FONT_ITALIC,0.8,thickness=2,
+                            color=128,lineType=cv2.LINE_AA)
 
     def update_array_masks(self,
                            sqrt_n_images: int,
@@ -313,7 +317,7 @@ class ImageLoader:
                         mask = np.uint8(mask * 255)
                         add_mask = True
                 if add_mask is True:
-                    x,y = np.where(binary_dilation(canny(mask)) > 0)
+                    x,y = np.where(canny(mask) > 0)
                     x = x + i * self.size[0]
                     y = y + j * self.size[1]
                     self.array_tiles[x,y] = 255
@@ -324,12 +328,14 @@ class ImageLoader:
                            start_idx: int,
                            image_key: str,
                            mask_key: str,
-                           mode: str=None):
+                           mode: str=None,
+                           numbers: bool=True):
         self.update_array(sqrt_n_images,
                           slice_idx,
                           start_idx,
                           image_key,
-                          mode=mode)
+                          mode=mode,
+                          numbers=numbers)
         if self.mask_dataset is not None:
             self.update_array_masks(sqrt_n_images,
                                     slice_idx,
