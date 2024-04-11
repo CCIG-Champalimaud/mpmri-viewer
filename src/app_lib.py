@@ -64,6 +64,8 @@ def init_app(
         study_uid_pattern=study_uid_pattern,
     )
 
+    metadata_keys = metadata_keys if metadata_keys is not None else []
+
     if metadata_path is not None:
         with open(metadata_path) as o:
             metadata = json.load(o)

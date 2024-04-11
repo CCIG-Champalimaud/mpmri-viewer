@@ -20,7 +20,7 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument(
     "--study_uid_pattern",
-    default=r"[0-9\.]+\.[0-9\.]+",
+    default=r"[0-9\.]+\.[0-9\.]+[0-9]",
     help="Pattern used to extract the study UID.",
 )
 parser.add_argument(

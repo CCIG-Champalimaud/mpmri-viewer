@@ -8,7 +8,6 @@ from pathlib import Path
 from PIL import Image
 from skimage.transform import resize
 from skimage.feature import canny
-from skimage.morphology import binary_dilation
 
 from typing import List, Tuple, Dict, Any
 
