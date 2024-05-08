@@ -126,7 +126,7 @@ def init_app(
 
     filter_instructions = pn.widgets.TextInput(
         name="Filter by metadata key",
-        options=metadata_keys,
+        # options=metadata_keys,
         placeholder="key==value or key!=value",
         width=250,
     )
