@@ -23,7 +23,10 @@ def read_sitk_array(path: str):
 
 
 def get_filter_from_str(filter_str: str):
-    if "===" in filter_str:
+    if re.match("has\(.*\)", filter_str):
+        key = filter_str.split("has")[1].rstrip(")").lstrip("(")
+        return lambda x: key in x
+    elif "===" in filter_str:
         key, value = filter_str.split("===")
         return lambda x: str(x[key]) == str(value) if key in x else False
     elif "!==" in filter_str:
