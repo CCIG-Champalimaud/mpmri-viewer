@@ -1,14 +1,8 @@
 # Volume dataset viewer
 
-Simple viewer implemented in `Panel`, enabling the quick visualization of large volumes of SimpleITK-readable files. This was developed for prostate mpMRI, but few changes are necessary to get it up and running for other data types.
+Simple viewer implemented in `Panel`, enabling the quick visualization of large volumes of SimpleITK-readable volumes. This was developed for prostate mpMRI, but few changes are necessary to get it up and running for other data types.
 
 ## Usage 
-
-### Installing pre-requisites
-
-```
-pip install -r requirements
-```
 
 ### Running as command line tool
 
