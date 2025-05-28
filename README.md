@@ -14,7 +14,7 @@ pip install -r requirements
 
 Very little input is necessary to get this up and running. `app.py` is the script orchestrating everything and the relevant code is contained in `src`. To launch this simple visualizer all that is necessary is:
 
-* Serve a panel app using `panel serve app.py`. A single command line argument is necessary and should be specified with `--args`, i.e. `panel serve app.py --args --dataset_path PATH_TO_FOLDER_CONTAINING_STUDIES`. Together with this, other arguments can be specified:
+* Serve a panel app using `uv run panel serve app.py`. A single command line argument is necessary and should be specified with `--args`, i.e. `uv run panel serve app.py --args --dataset_path PATH_TO_FOLDER_CONTAINING_STUDIES`. Together with this, other arguments can be specified:
 
     * `--patterns` - patterns used to recursively glob file extensions corresponding to images
     * `--study_uid_pattern` - pattern used to collect, from the file path, the study UID (should be regex compatible)
